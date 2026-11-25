@@ -69,7 +69,14 @@ jobs:
         run: |
           sdk=$(sed -n 's/^android-sdk-compile = "\([0-9]*\)"/\1/p' gradle/kei.versions.toml)
           test -n "$sdk"
-          sdkmanager "platforms;android-$sdk"
+          if [ "$sdk" = "37" ]; then
+            sdkmanager --channel=3 "platforms;android-37.0"
+            if [ ! -e "$ANDROID_HOME/platforms/android-37" ]; then
+              ln -s android-37.0 "$ANDROID_HOME/platforms/android-37"
+            fi
+          else
+            sdkmanager "platforms;android-$sdk"
+          fi
           mkdir -p "$HOME/.android"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
             keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
