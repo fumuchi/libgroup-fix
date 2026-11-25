@@ -61,6 +61,9 @@ jobs:
           theme.write_text(s, encoding='utf-8')
           PY
           git diff -- lib-multisrc/libgroup
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
       - name: Prepare Android SDK and test signing key
         working-directory: upstream
         run: |
