@@ -1,0 +1,72 @@
+{
+  "name": "LibGroup Personal Fix",
+  "badgeLabel": "FIX",
+  "signingKey": "9473e5b83e48e40988149de9547c108ec6139429076870bd4de1a4dd22124c9b",
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "MangaLib",
+        "packageName": "eu.kanade.tachiyomi.extension.ru.mangalib",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/apk/tachiyomi-ru.mangalib-v1.6.4.apk",
+          "iconUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/icon/mangalib.png",
+          "jarUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/jar/tachiyomi-ru.mangalib-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "6111047689498497237",
+            "name": "MangaLib",
+            "language": "ru",
+            "homeUrl": "https://mangalib.me"
+          }
+        ]
+      },
+      {
+        "name": "SlashLib",
+        "packageName": "eu.kanade.tachiyomi.extension.ru.yaoilib",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/apk/tachiyomi-ru.yaoilib-v1.6.5.apk",
+          "iconUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/icon/slashlib.png",
+          "jarUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/jar/tachiyomi-ru.yaoilib-v1.6.5.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106005",
+        "versionName": "1.6.5",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "2730544188738947015",
+            "name": "SlashLib",
+            "language": "ru",
+            "homeUrl": "https://v2.shlib.life"
+          }
+        ]
+      },
+      {
+        "name": "HentaiLib",
+        "packageName": "eu.kanade.tachiyomi.extension.ru.hentailib",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/apk/tachiyomi-ru.hentailib-v1.6.4.apk",
+          "iconUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/icon/hentailib.png",
+          "jarUrl": "https://raw.githubusercontent.com/fumuchi/libgroup-fix/main/repo/jar/tachiyomi-ru.hentailib-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "6425650164840473547",
+            "name": "HentaiLib",
+            "language": "ru",
+            "homeUrl": "https://hentailib.me"
+          }
+        ]
+      }
+    ]
+  }
+}
