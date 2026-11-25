@@ -2,6 +2,9 @@
   "name": "LibGroup Personal Fix",
   "badgeLabel": "FIX",
   "signingKey": "9473e5b83e48e40988149de9547c108ec6139429076870bd4de1a4dd22124c9b",
+  "contact": {
+    "website": "https://github.com/fumuchi/libgroup-fix"
+  },
   "extensionList": {
     "extensions": [
       {

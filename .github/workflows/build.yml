@@ -140,12 +140,13 @@ jobs:
                   sources=[index_pb2.Source(id=int(s['id']), name=s['name'], language=s['lang'], homeUrl=s['baseUrl'], mirrorUrls=s.get('mirrorUrls', [])) for s in info['sources']],
               ))
           cert = subprocess.check_output(['keytool','-exportcert','-keystore',str(Path.home()/'.android/debug.keystore'),'-alias','androiddebugkey','-storepass','android'])
-          index = index_pb2.Index(name='LibGroup Personal Fix', badgeLabel='FIX', signingKey=hashlib.sha256(cert).hexdigest(), extensionList=index_pb2.ExtensionList(extensions=entries))
+          index = index_pb2.Index(name='LibGroup Personal Fix', badgeLabel='FIX', contact=index_pb2.Contact(website='https://github.com/fumuchi/libgroup-fix'), signingKey=hashlib.sha256(cert).hexdigest(), extensionList=index_pb2.ExtensionList(extensions=entries))
           (out/'index.pb').write_bytes(gzip.compress(index.SerializeToString(deterministic=True), mtime=0))
           (out/'index.json').write_text(json_format.MessageToJson(index, preserving_proto_field_name=True), encoding='utf-8')
           (out/'upstream-commit.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'], text=True))
           from zipfile import ZipFile
           parsed = index_pb2.Index.FromString(gzip.decompress((out/'index.pb').read_bytes()))
+          assert parsed.HasField('contact') and parsed.contact.website
           assert len({ext.packageName for ext in parsed.extensionList.extensions}) == 3
           for ext in parsed.extensionList.extensions:
               assert ext.sources and all(source.id for source in ext.sources)
