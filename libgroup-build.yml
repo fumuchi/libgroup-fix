@@ -1,0 +1,130 @@
+name: Build LibGroup fix
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download official source
+        uses: actions/checkout@v7
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          persist-credentials: false
+          path: upstream
+          sparse-checkout: |
+            .github/scripts
+            common
+            compiler
+            core
+            gradle
+            lint-rules
+            lib
+            lib-multisrc
+            src/ru/mangalib
+            src/ru/slashlib
+            src/ru/hentailib
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Apply the fix
+        working-directory: upstream
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          dto = next(Path('lib-multisrc/libgroup').rglob('LibGroupDto.kt'))
+          text = dto.read_text(encoding='utf-8')
+          pattern = r'(?m)^([ \t]*)@SerialName\("site_ids"\)\s+val siteIds: List<Int>,'
+          text, count = re.subn(pattern, lambda m: m[1] + '@Serializable(with = SiteIdsSerializer::class)\n' + m[0], text)
+          assert count == 3, 'Upstream DTO changed; review before patching.' 
+          text += '''
+
+          object SiteIdsSerializer : kotlinx.serialization.json.JsonTransformingSerializer<List<Int>>(
+              kotlinx.serialization.builtins.ListSerializer(Int.serializer()),
+          ) {
+              override fun transformDeserialize(element: JsonElement): JsonElement =
+                  if (element is JsonObject) JsonArray(element.values.toList()) else element
+          }
+          '''
+          text = text.replace('import kotlinx.serialization.Serializable\n', 'import kotlinx.serialization.Serializable\nimport kotlinx.serialization.builtins.serializer\n', 1)
+          dto.write_text(text, encoding='utf-8')
+          theme = Path('lib-multisrc/libgroup/build.gradle.kts')
+          s = theme.read_text(encoding='utf-8')
+          s, n = re.subn(r'(baseVersionCode\s*=\s*)(\d+)', lambda m: m[1] + str(int(m[2])+1), s)
+          assert n == 1, 'Theme version format changed.'
+          theme.write_text(s, encoding='utf-8')
+          PY
+          git diff -- lib-multisrc/libgroup
+      - name: Prepare Android SDK and test signing key
+        working-directory: upstream
+        run: |
+          sdk=$(sed -n 's/^android-sdk-compile = "\([0-9]*\)"/\1/p' gradle/kei.versions.toml)
+          test -n "$sdk"
+          sdkmanager "platforms;android-$sdk"
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+      - name: Build APK and JAR
+        working-directory: upstream
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :src:ru:mangalib:assembleRelease :src:ru:slashlib:assembleRelease :src:ru:hentailib:assembleRelease
+      - name: Save binaries even if index generation fails
+        uses: actions/upload-artifact@v7
+        with:
+          name: libgroup-binaries
+          path: |
+            upstream/src/ru/*/build/outputs/apk/release/*.apk
+            upstream/src/ru/*/build/outputs/jar/release/*.jar
+          if-no-files-found: error
+      - name: Collect files and prepare repository index
+        working-directory: upstream
+        run: |
+          python3 -m venv "$RUNNER_TEMP/index-venv"
+          "$RUNNER_TEMP/index-venv/bin/python" -m pip install protobuf
+          "$RUNNER_TEMP/index-venv/bin/python" - <<'PY'
+          from pathlib import Path
+          import gzip, hashlib, json, os, shutil, subprocess, sys
+          from google.protobuf import json_format
+          sys.path.insert(0, str(Path('.github/scripts').resolve()))
+          import index_pb2
+          out = Path('../result')
+          (out/'apk').mkdir(parents=True, exist_ok=True)
+          (out/'jar').mkdir(exist_ok=True)
+          base = 'https://raw.githubusercontent.com/' + os.environ['GITHUB_REPOSITORY'] + '/main/repo'
+          entries = []
+          for name in ['mangalib', 'slashlib', 'hentailib']:
+              module = Path('src/ru')/name
+              build = module/'build'
+              info = json.loads((build/'keiyoushi-source-info.json').read_text())
+              apk, = (build/'outputs/apk/release').glob('*.apk')
+              jar, = (build/'outputs/jar/release').glob('*.jar')
+              shutil.copy2(apk, out/'apk'/apk.name)
+              shutil.copy2(jar, out/'jar'/jar.name)
+              entries.append(index_pb2.Extension(
+                  name=info['name'], packageName=info['packageName'],
+                  resources=index_pb2.Resources(apkUrl=f'{base}/apk/{apk.name}', jarUrl=f'{base}/jar/{jar.name}'),
+                  extensionLib=info['extensionLib'], versionCode=info['versionCode'], versionName=info['versionName'],
+                  contentWarning=info['contentWarning'],
+                  sources=[index_pb2.Source(id=int(s['id']), name=s['name'], language=s['lang'], homeUrl=s['baseUrl'], mirrorUrls=s.get('mirrorUrls', [])) for s in info['sources']],
+              ))
+          cert = subprocess.check_output(['keytool','-exportcert','-keystore',str(Path.home()/'.android/debug.keystore'),'-alias','androiddebugkey','-storepass','android'])
+          index = index_pb2.Index(name='LibGroup Personal Fix', badgeLabel='FIX', signingKey=hashlib.sha256(cert).hexdigest(), extensionList=index_pb2.ExtensionList(extensions=entries))
+          (out/'index.pb').write_bytes(gzip.compress(index.SerializeToString(deterministic=True), mtime=0))
+          (out/'index.json').write_text(json_format.MessageToJson(index, preserving_proto_field_name=True), encoding='utf-8')
+          (out/'upstream-commit.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'], text=True))
+          print('Repository URL after uploading result into main/repo: '+base+'/index.pb')
+          PY
+      - name: Downloadable build
+        uses: actions/upload-artifact@v7
+        with:
+          name: libgroup-fixed
+          path: result/
+          if-no-files-found: error
