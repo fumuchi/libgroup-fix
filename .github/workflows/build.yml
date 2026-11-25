@@ -1,6 +1,12 @@
 name: Build LibGroup fix
 'on':
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/build.yml']
+concurrency:
+  group: libgroup-build
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -12,7 +18,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: keiyoushi/extensions-source
-          ref: main
+          ref: bac637ac333a03da0f8c5e7894713d782670b2d7
           persist-credentials: false
           path: upstream
           sparse-checkout: |
@@ -23,7 +29,7 @@ jobs:
             gradle
             lint-rules
             lib
-            lib-multisrc
+            lib-multisrc/libgroup
             src/ru/mangalib
             src/ru/slashlib
             src/ru/hentailib
@@ -42,14 +48,12 @@ jobs:
           text = dto.read_text(encoding='utf-8')
           pattern = r'(?m)^([ \t]*)@SerialName\("site_ids"\)\s+val siteIds: List<Int>,'
           text, count = re.subn(pattern, lambda m: m[1] + '@Serializable(with = SiteIdsSerializer::class)\n' + m[0], text)
-          assert count == 3, 'Upstream DTO changed; review before patching.' 
+          assert count == 3, 'Upstream DTO changed; review before patching.'
           text += '''
-
           object SiteIdsSerializer : kotlinx.serialization.json.JsonTransformingSerializer<List<Int>>(
               kotlinx.serialization.builtins.ListSerializer(Int.serializer()),
           ) {
-              override fun transformDeserialize(element: JsonElement): JsonElement =
-                  if (element is JsonObject) JsonArray(element.values.toList()) else element
+              override fun transformDeserialize(element: JsonElement): JsonElement = if (element is JsonObject) JsonArray(element.values.toList()) else element
           }
           '''
           text = text.replace('import kotlinx.serialization.Serializable\n', 'import kotlinx.serialization.Serializable\nimport kotlinx.serialization.builtins.serializer\n', 1)
@@ -64,7 +68,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Prepare Android SDK and test signing key
+      - name: Prepare Android SDK
         working-directory: upstream
         run: |
           sdk=$(sed -n 's/^android-sdk-compile = "\([0-9]*\)"/\1/p' gradle/kei.versions.toml)
@@ -77,10 +81,15 @@ jobs:
           else
             sdkmanager "platforms;android-$sdk"
           fi
+      - name: Load repository signing key
+        env:
+          KEYSTORE: ${{ secrets.LIBGROUP_KEYSTORE }}
+        run: |
+          umask 077
           mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          test -n "$KEYSTORE"
+          printf '%s' "$KEYSTORE" | base64 -d > "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android > /dev/null
       - name: Build APK and JAR
         working-directory: upstream
         run: |
@@ -109,6 +118,8 @@ jobs:
           (out/'apk').mkdir(parents=True, exist_ok=True)
           (out/'jar').mkdir(exist_ok=True)
           base = 'https://raw.githubusercontent.com/' + os.environ['GITHUB_REPOSITORY'] + '/main/repo'
+          (out/'icon').mkdir(exist_ok=True)
+          shutil.copy2('LICENSE', out/'LICENSE')
           entries = []
           for name in ['mangalib', 'slashlib', 'hentailib']:
               module = Path('src/ru')/name
@@ -118,9 +129,12 @@ jobs:
               jar, = (build/'outputs/jar/release').glob('*.jar')
               shutil.copy2(apk, out/'apk'/apk.name)
               shutil.copy2(jar, out/'jar'/jar.name)
+              icon_rel = 'res/mipmap-xhdpi/ic_launcher.png'
+              icon = next(p / icon_rel for p in (module, Path('lib-multisrc/libgroup'), Path('core/src/main')) if (p / icon_rel).is_file())
+              shutil.copy2(icon, out/'icon'/f'{name}.png')
               entries.append(index_pb2.Extension(
                   name=info['name'], packageName=info['packageName'],
-                  resources=index_pb2.Resources(apkUrl=f'{base}/apk/{apk.name}', jarUrl=f'{base}/jar/{jar.name}'),
+                  resources=index_pb2.Resources(iconUrl=f'{base}/icon/{name}.png', apkUrl=f'{base}/apk/{apk.name}', jarUrl=f'{base}/jar/{jar.name}'),
                   extensionLib=info['extensionLib'], versionCode=info['versionCode'], versionName=info['versionName'],
                   contentWarning=info['contentWarning'],
                   sources=[index_pb2.Source(id=int(s['id']), name=s['name'], language=s['lang'], homeUrl=s['baseUrl'], mirrorUrls=s.get('mirrorUrls', [])) for s in info['sources']],
@@ -130,7 +144,19 @@ jobs:
           (out/'index.pb').write_bytes(gzip.compress(index.SerializeToString(deterministic=True), mtime=0))
           (out/'index.json').write_text(json_format.MessageToJson(index, preserving_proto_field_name=True), encoding='utf-8')
           (out/'upstream-commit.txt').write_text(subprocess.check_output(['git','rev-parse','HEAD'], text=True))
-          print('Repository URL after uploading result into main/repo: '+base+'/index.pb')
+          from zipfile import ZipFile
+          parsed = index_pb2.Index.FromString(gzip.decompress((out/'index.pb').read_bytes()))
+          assert len({ext.packageName for ext in parsed.extensionList.extensions}) == 3
+          for ext in parsed.extensionList.extensions:
+              assert ext.sources and all(source.id for source in ext.sources)
+              for url in (ext.resources.apkUrl, ext.resources.jarUrl):
+                  assert url.startswith(base + '/')
+                  with ZipFile(out/url.removeprefix(base + '/')) as archive:
+                      assert archive.testzip() is None
+                      if url.endswith('.jar'):
+                          assert any(name.endswith('.class') for name in archive.namelist())
+          print('Verified repository index and the three JAR/APK pairs.')
+
           PY
       - name: Downloadable build
         uses: actions/upload-artifact@v7
@@ -138,3 +164,27 @@ jobs:
           name: libgroup-fixed
           path: result/
           if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/download-artifact@v8
+        with:
+          name: libgroup-fixed
+          path: repo
+      - name: Publish index and extensions together
+        run: |
+          git add -- repo
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Publish signed LibGroup extensions for Tachimanga'
+            git push origin HEAD:main
+          fi
